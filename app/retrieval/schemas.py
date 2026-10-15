@@ -1,4 +1,8 @@
-"""Validated request/response models for knowledge search (also the knowledge_search tool schema in T4)."""
+"""Validated request/response models for knowledge search (also the knowledge_search tool schema in T4).
+
+T3 change: `doc_ids` lets the RLM retrieve targeted sections of specific documents.
+"""
+import re
 from datetime import date
 from typing import Literal, Optional
 
@@ -6,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 DocType = Literal["incident", "runbook", "architecture", "product_spec", "meeting_notes", "policy"]
 _SAFE = r"^[A-Za-z0-9 _\-]{1,50}$"
+_DOC_ID = re.compile(r"^[A-Za-z0-9_\-]{1,40}$")
 
 
 class SearchRequest(BaseModel):
@@ -16,11 +21,21 @@ class SearchRequest(BaseModel):
     date_from: Optional[date] = None
     date_to: Optional[date] = None
     alpha: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    doc_ids: Optional[list[str]] = Field(default=None, max_length=50)
 
     @field_validator("query")
     @classmethod
     def _strip(cls, v: str) -> str:
         return v.strip()
+
+    @field_validator("doc_ids")
+    @classmethod
+    def _ids(cls, v):
+        if v is not None:
+            for i in v:
+                if not _DOC_ID.match(i):
+                    raise ValueError(f"invalid doc id: {i!r}")
+        return v
 
     @model_validator(mode="after")
     def _dates(self):
@@ -50,8 +65,6 @@ class RetrievalResult(BaseModel):
     degraded_reasons: list[str] = []
     alpha: float
     applied_filter: dict
-    # relevance floor: True when candidates existed but none passed min_score.
-    # The response agent must then say "no accessible documents found", never improvise.
     no_relevant_results: bool = False
     min_score: float = 0.0
     dropped_below_min_score: int = 0

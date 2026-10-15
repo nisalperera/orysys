@@ -9,6 +9,10 @@ Post-processing order (each step is reported in RetrievalResult for the activity
   3. per-document cap `max_per_doc` -> one long incident cannot fill the whole context
   4. top_k cut
 
+Targeted retrieval: when the caller passes `doc_ids` (the RLM sub-agents do), the caller has already chosen
+the documents, so the relevance floor and the per-document cap are switched off. Otherwise the cap would
+throw away exactly the sections the sub-agent asked for. Access control still applies in full.
+
 Resilience: per-namespace timeout and partial results, dense-only fallback, RetrievalError when nothing works.
 Dependencies are injected so the class is testable without Pinecone or an LLM provider.
 """
@@ -78,6 +82,10 @@ class HybridRetriever:
         alpha = self.default_alpha if req.alpha is None else req.alpha
         reasons: list[str] = []
 
+        targeted = bool(req.doc_ids)  # caller already chose the documents (RLM sub-agents)
+        min_score = 0.0 if targeted else self.min_score
+        max_per_doc = 0 if targeted else self.max_per_doc
+
         t0 = time.perf_counter()
         try:
             dense = await self.embed_query(req.query)
@@ -98,11 +106,11 @@ class HybridRetriever:
 
         flt = build_filter(user, req)
         targets = namespaces_for(req, self.namespaces)
-        base = dict(alpha=alpha, applied_filter=flt, min_score=self.min_score, embed_ms=embed_ms)
+        base = dict(alpha=alpha, applied_filter=flt, min_score=min_score, embed_ms=embed_ms)
         if not targets:
             return RetrievalResult(hits=[], namespaces_searched=[], **base)
 
-        fetch_k = min(req.top_k * 2, 40) if self.max_per_doc else req.top_k  # over-fetch so the cap still fills top_k
+        fetch_k = min(req.top_k * 2, 40) if max_per_doc else req.top_k  # over-fetch so the cap still fills top_k
         t1 = time.perf_counter()
         outcomes = await asyncio.gather(
             *(self._query_ns(ns, qd, qs, flt, fetch_k) for ns in targets), return_exceptions=True)
@@ -121,7 +129,7 @@ class HybridRetriever:
             raise RetrievalError("Vector database unavailable for all namespaces")
 
         hits, leaked, below, capped = apply_post_filters(
-            raw, set(user.access_levels), self.min_score, self.max_per_doc, req.top_k)
+            raw, set(user.access_levels), min_score, max_per_doc, req.top_k)
         if leaked:
             log.error("access filter leak blocked: %d hits dropped", leaked)
 

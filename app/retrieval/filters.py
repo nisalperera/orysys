@@ -14,6 +14,8 @@ def build_filter(user: User, req: SearchRequest) -> dict:
     clauses: list[dict] = [{"access_level": {"$in": list(user.access_levels)}}]
     if req.department:
         clauses.append({"department": {"$eq": req.department}})
+    if req.doc_ids:
+        clauses.append({"doc_id": {"$in": list(req.doc_ids)}})
     if req.date_from:
         clauses.append({"created_ts": {"$gte": _ts(req.date_from, False)}})
     if req.date_to:
