@@ -1,0 +1,144 @@
+"""Fakes and a minimal graph runner for tests. The runner executes the SAME topology table and node wrapper
+that builder.py gives to LangGraph, and keeps per-thread state like a checkpointer would."""
+import asyncio
+import json
+import re
+from types import SimpleNamespace
+
+from app.auth.models import USERS
+from app.graph import topology
+from app.graph.deps import Deps
+from app.graph.events import EventBus
+from app.graph.runtime import wrap_node
+from app.retrieval.schemas import Hit, RetrievalResult
+
+
+class SimpleGraph:
+    def __init__(self, deps):
+        self.deps, self.threads = deps, {}
+        self.nodes = {n: wrap_node(n, fn, deps) for n, fn in topology.NODES.items()}
+
+    async def ainvoke(self, inp, config=None):
+        state = self.threads.setdefault((config or {}).get("configurable", {}).get("thread_id", "t"), {})
+        state.update(inp)
+        node, hops = topology.ENTRY, 0
+        while node != topology.END:
+            hops += 1
+            assert hops < 30, "graph loop"
+            update = await self.nodes[node](state)
+            for k, v in (update or {}).items():
+                state[k] = (state.get(k) or []) + v if k == "messages" else v
+            if node in topology.EDGES:
+                node = topology.EDGES[node]
+            else:
+                router, targets = topology.CONDITIONAL[node]
+                node = router(state)
+                assert node in targets, f"{node} not allowed after routing"
+        return dict(state)
+
+
+def hit(doc="INC-2026-007", n=3, text="Root cause: the connection pool (max 50) saturated. Duration 41 minutes.", score=0.7,
+        level="internal", dtype="incident"):
+    return Hit(chunk_id=f"{doc}#{n}", doc_id=doc, title=f"Incident report {doc}", section="Root cause", document_type=dtype,
+               department="payments", access_level=level, created_date="2026-02-18", score=score, text=text)
+
+
+class FakeLLM:
+    def __init__(self, supervisor=None, summary="SUMMARY", fail=()):
+        self.supervisor = supervisor if supervisor is not None else {"intent": "knowledge_qa", "standalone_query": "q"}
+        self.summary, self.fail, self.calls = summary, set(fail), []
+
+    async def __call__(self, messages):
+        task = re.match(r"\[task:(\w+)\]", messages[0]["content"]).group(1)
+        self.calls.append((task, messages))
+        if task in self.fail:
+            raise ConnectionError("llm down")
+        if task == "supervisor":
+            s = self.supervisor(messages) if callable(self.supervisor) else self.supervisor
+            return s if isinstance(s, str) else json.dumps(s)
+        if task == "summary":
+            return self.summary
+        return "ok"
+
+    def tasks(self):
+        return [t for t, _ in self.calls]
+
+
+class FakeStream:
+    def __init__(self, answers, fail=False, delay=0.0):
+        self.answers, self.fail, self.delay, self.calls = list(answers), fail, delay, []
+
+    async def __call__(self, messages):
+        self.calls.append(messages)
+        if self.fail:
+            raise ConnectionError("stream down")
+        text = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
+        for tok in re.findall(r"\S+\s*", text):
+            if self.delay:
+                await asyncio.sleep(self.delay)
+            yield tok
+
+
+class FakeSearch:
+    def __init__(self, hits=None, error=None, no_relevant=False):
+        self.hits, self.error, self.no_relevant, self.calls = hits if hits is not None else [hit()], error, no_relevant, []
+
+    async def __call__(self, user, req):
+        self.calls.append((user, req))
+        if self.error:
+            raise self.error
+        return RetrievalResult(hits=self.hits, namespaces_searched=["incident"], alpha=0.6, applied_filter={},
+                               no_relevant_results=self.no_relevant and not self.hits)
+
+
+class FakeResult(SimpleNamespace):
+    def model_dump(self, exclude=None):
+        d = dict(self.__dict__)
+        for k in exclude or ():
+            d.pop(k, None)
+        return d
+
+
+class FakeEngine:
+    def __init__(self, answer="", relevant=(), analysis=None, error=None):
+        self.answer, self.relevant, self.analysis, self.error = answer, list(relevant), analysis or {}, error
+        self.users, self.questions, self.emit = [], [], None
+
+    def factory(self, emit):
+        self.emit = emit
+        return self
+
+    async def run(self, user, question):
+        self.users.append(user)
+        self.questions.append(question)
+        if self.error:
+            raise self.error
+        self.emit({"agent": "research", "stage": "rlm", "type": "select", "matched": len(self.relevant)})
+        return FakeResult(answer=self.answer, relevant_doc_ids=self.relevant, analysis=self.analysis, degraded=False,
+                          docs_considered=len(self.relevant), batches=1)
+
+
+def make_deps(llm=None, stream=None, search=None, engine=None, **kw):
+    llm, stream, search, engine = llm or FakeLLM(), stream or FakeStream(["Pool saturated [INC-2026-007#3]."]), \
+        search or FakeSearch(), engine or FakeEngine()
+    d = Deps(users=USERS, llm=llm, llm_stream=stream, search=search, make_engine=engine.factory,
+             departments=lambda u: {"payments", "cards"}, **kw)
+    d.fakes = SimpleNamespace(llm=llm, stream=stream, search=search, engine=engine)
+    return d
+
+
+async def turn(graph, deps, user_id, question, thread="s1", rid="r1"):
+    bus = EventBus(rid)
+    deps.buses[rid] = bus
+    result = await graph.ainvoke({"request_id": rid, "user_id": user_id, "question": question},
+                                 {"configurable": {"thread_id": thread}})
+    deps.buses.pop(rid, None)
+    return result, bus.drain()
+
+
+def kinds(events, t):
+    return [e for e in events if e["type"] == t]
+
+
+def node_order(events):
+    return [e["node"] for e in events if e["type"] == "node_start"]

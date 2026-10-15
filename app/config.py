@@ -1,5 +1,10 @@
 """Central configuration. All thresholds are env-configurable (see .env.example)."""
 from functools import lru_cache
+
+from dotenv import load_dotenv
+
+# LangSmith and LangChain read os.environ, while pydantic-settings only fills the Settings object.
+load_dotenv()  # shell variables win over .env
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
