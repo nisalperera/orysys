@@ -1,5 +1,20 @@
 # Research completeness and aggregation fallbacks
 
+## Empty and inconclusive analysis outcomes
+
+No selected documents means no accessible matches. All failed batches mean analysis
+failed. Selected documents with rejected/missing findings mean supported relevance
+could not be established, not that the documents were irrelevant. Only complete,
+warning-free explicit classification permits a scoped no-relevant-documents outcome.
+
+Automatic summaries label incomplete downtime as a known downtime subtotal.
+This is conservative at global metric coverage level; per-cause measurement coverage
+is not introduced by this small update.
+
+The final-delivery tests use the real LangGraph builder, ChatService and FastAPI
+with injected offline research fixtures. Run them locally; they were not executed
+in the package-generation environment.
+
 ## Measurement coverage
 
 Analysis keeps backwards-compatible totals as known sums and adds metric_coverage.

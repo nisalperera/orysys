@@ -30,6 +30,7 @@ from app.rlm.errors import is_permanent
 from app.rlm.evidence_policy import supported_findings
 from app.rlm.completeness import (
     append_completeness_notes, bounded_records, coverage_reasons, safe_completeness_notes,
+    no_findings_outcome, downtime_label,
 )
 from app.reliability import task_for_user, render_extreme
 from app.rlm.guard import reconcile_select
@@ -165,16 +166,14 @@ class RLMEngine:
             run.reasons.append("Some documents have multiple root-cause labels; cause-group totals overlap")
         await self._emit("analysis", relevant=len(findings), recurring=analysis["recurring"])
 
-        if not findings and docs and analysed:
-            run.reasons.append("All selected documents classified irrelevant after recheck; completeness not established")
-            await self._emit("relevance_warning", selected=len(docs), analysed=len(analysed))
         if not findings:
-            if batch_results and all(batch.error for batch in batch_results):
-                msg = "The documents could not be analysed because a required service failed. Please try again."
-            elif docs and analysed:
-                msg = "I could not establish relevance for the selected documents after a recheck. This analysis is incomplete; please retry or refine the request."
-            else:
-                msg = "No relevant documents were found for this request."
+            msg, incomplete = no_findings_outcome(
+                [doc.doc_id for doc in docs], analysed,
+                [batch.error for batch in batch_results], bool(run.reasons),
+            )
+            if incomplete:
+                run.reasons.append("Supported relevance could not be established; completeness is not established")
+                await self._emit("relevance_warning", selected=len(docs), analysed=len(analysed))
             if failed:
                 msg += " Some batches failed, so the search may be incomplete."
             return self._result(msg, plan, docs, truncated, failed, analysis, run, findings)
@@ -345,7 +344,7 @@ class RLMEngine:
                  f"was unavailable)."]
         for c in analysis["by_root_cause"]:
             ids = ", ".join(f"[{i}]" for i in c["doc_ids"])
-            lines.append(f"- {c['root_cause']}: {c['count']} occurrence(s), {c['downtime_minutes']} min downtime, {ids}")
+            lines.append(f"- {c['root_cause']}: {c['count']} occurrence(s), {c['downtime_minutes']} {downtime_label(analysis)}, {ids}")
         if failed:
             lines.append(f"Note: batches {failed} failed, results may be incomplete.")
         return append_completeness_notes("\n".join(lines), analysis, reasons, failed)

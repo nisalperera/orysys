@@ -1,5 +1,7 @@
 # Configuration guide
 
+Research outcome wording and subtotal labels add no configuration settings. See [research completeness](docs/research_completeness.md) for outcome semantics and offline graph/API checks.
+
 Research completeness reporting adds no environment variables. See [research completeness](docs/research_completeness.md) for measurement scope, fallback limits and validation commands.
 
 Provider setup uses a shared chat/embedding endpoint; the historical two-server vLLM example is not wired. See [provider compatibility](docs/vllm_serving.md) and [analysis integrity](docs/analysis_integrity.md) for supported numeric formats and counting semantics.

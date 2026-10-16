@@ -111,3 +111,31 @@ def append_completeness_notes(answer, analysis, reasons=(), failed=()):
     if footer in answer:
         return answer
     return answer.rstrip() + "\n\n" + footer
+
+
+def no_findings_outcome(selected_ids, analysed_ids, batch_errors=(), has_warnings=False):
+    """Separate empty scope, failed analysis, explicit irrelevance and inconclusive evidence."""
+    selected = set(selected_ids)
+    analysed = set(analysed_ids)
+    if not selected:
+        return "No accessible documents match this request.", False
+    errors = list(batch_errors)
+    if errors and all(errors):
+        return (
+            "The documents could not be analysed because a required service failed. Please try again.",
+            True,
+        )
+    if selected <= analysed and not any(errors) and not has_warnings:
+        return "No relevant documents were identified within the analysed scope.", False
+    return (
+        "I could not establish supported relevance for the selected documents. "
+        "This analysis is incomplete; please retry or refine the request.",
+        True,
+    )
+
+
+def downtime_label(analysis):
+    coverage = (analysis.get("metric_coverage") or {}).get("duration_minutes") or {}
+    if coverage.get("applicable") and not coverage.get("complete"):
+        return "min known downtime subtotal"
+    return "min downtime"
