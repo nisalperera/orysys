@@ -6,6 +6,7 @@ single document has multiple distinct supported cause labels.
 """
 import re
 from collections import Counter, defaultdict
+from app.rlm.completeness import measurement_coverage
 
 _FACTS = {
     "severity": re.compile(r"\*\*Severity:\*\*[ \t]*(P\d)", re.I),
@@ -151,6 +152,7 @@ def analyze_findings(findings: list[dict], doc_meta: dict[str, dict]) -> dict:
     return {
         "total_documents": len(by_doc),
         "total_findings": len(findings),
+        "metric_coverage": measurement_coverage(incidents, doc_meta),
         "by_root_cause": by_cause,
         "recurring": [item["root_cause"] for item in by_cause if item["count"] >= 2],
         "incidents": incidents,

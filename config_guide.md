@@ -1,5 +1,7 @@
 # Configuration guide
 
+Research completeness reporting adds no environment variables. See [research completeness](docs/research_completeness.md) for measurement scope, fallback limits and validation commands.
+
 Provider setup uses a shared chat/embedding endpoint; the historical two-server vLLM example is not wired. See [provider compatibility](docs/vllm_serving.md) and [analysis integrity](docs/analysis_integrity.md) for supported numeric formats and counting semantics.
 
 Authentication: omit API_TOKENS for demo keys, supply a valid JSON key-to-user mapping to replace them, or use `{}` to disable all API-key access. An explicitly invalid value fails startup and is never replaced by demo keys. See [current assumptions](docs/ASSUMPTIONS.md).

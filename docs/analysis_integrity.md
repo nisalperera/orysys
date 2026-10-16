@@ -34,9 +34,10 @@ Transaction counts are expected to occupy their field value line; explanatory te
 on the same line is not accepted by this strict extractor.
 Duration accepts the same integer forms followed by the word minutes.
 
-Missing/invalid numeric metadata contributes zero to the aggregate sum, meaning
-known measured total, not proof missing values were actually zero. Individual rows
-retain missing fields; downstream summaries should disclose incomplete measurements.
+Missing/invalid numeric metadata is excluded from the known sum, not treated as a
+measured zero. metric_coverage identifies measured and missing incident values.
+The executor marks incomplete measurements degraded and discloses known-subtotal
+limitations. See research_completeness.md for scope, fallback behavior and tests.
 
 ## Validation
 
