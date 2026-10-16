@@ -26,6 +26,7 @@ from pydantic import ValidationError
 from app.auth.models import User
 from app.retrieval.schemas import Hit, SearchRequest
 from app.rlm.catalog import Catalog
+from app.reliability import task_for_user, render_extreme
 from app.rlm.guard import reconcile_select
 from app.rlm.jsonutil import extract_json, strip_think
 from app.rlm.models import BatchResult, DocFinding, DocRef, RLMConfig, RLMResult
@@ -113,6 +114,7 @@ class RLMEngine:
     # ---------------------------------------------------------------- main
     async def run(self, user: User, question: str) -> RLMResult:
         run = _Run(self.cfg.concurrency)
+        run.question = question
         today = self.cfg.today or date.today()
 
         await self._emit("explore", stats=self.catalog.stats(user))
@@ -153,8 +155,13 @@ class RLMEngine:
         analysis = analyze_findings([f.model_dump() for f in findings], meta)
         await self._emit("analysis", relevant=len(findings), recurring=analysis["recurring"])
 
+        if not findings and docs and analysed:
+            run.reasons.append("All selected documents classified irrelevant after recheck; completeness not established")
+            await self._emit("relevance_warning", selected=len(docs), analysed=len(analysed))
         if not findings:
             msg = "No relevant documents were found for this request."
+            if docs and analysed:
+                msg = "I could not establish relevance for the selected documents after a recheck. This analysis is incomplete; please retry or refine the request."
             if failed:
                 msg += " Some batches failed, so the search may be incomplete."
             return self._result(msg, plan, docs, truncated, failed, analysis, run, findings)
@@ -189,6 +196,10 @@ class RLMEngine:
             return [BatchResult(batch_id=batch_id, depth=0, doc_ids=ids, error=f"retrieval: {exc}")]
         await self._emit("retrieval", batch_id=batch_id, hits=len(retrieved.hits), degraded=retrieved.degraded)
         results = await self._analyze_hits(plan, group, retrieved.hits, 0, batch_id, run)
+        if retrieved.hits and not any(f.relevant for b in results for f in b.findings) and not any(b.error for b in results):
+            await self._emit("relevance_retry", batch_id=batch_id)
+            corrected = plan.model_copy(update={"analyze_question": task_for_user(run.question)})
+            results = await self._analyze_hits(corrected, group, retrieved.hits, 0, batch_id, run)
         await self._emit("batch_done", batch_id=batch_id, findings=sum(len(r.findings) for r in results),
                          sub_batches=len(results))
         return results
@@ -237,7 +248,7 @@ class RLMEngine:
         if len(valid_chunks) < len(hits):
             res.warnings.append("evidence truncated to context budget")
         messages = [{"role": "system", "content": ANALYZE_SYSTEM},
-                    {"role": "user", "content": f"Task: {plan.analyze_question}\n\n{context}"}]
+                    {"role": "user", "content": f"{task_for_user(run.question)}\nExtraction focus: {plan.analyze_question}\n\n{context}"}]
         parsed = None
         for attempt in range(2):
             try:
@@ -270,6 +281,10 @@ class RLMEngine:
     # ---------------------------------------------------------------- reduce
     async def _reduce(self, question: str, plan: Plan, findings: list[DocFinding], analysis: dict, run: _Run,
                       meta: dict, failed: list[str]) -> str:
+        deterministic = render_extreme(question, analysis) if not failed and not run.reasons else None
+        if deterministic is not None:
+            await self._emit("deterministic_comparison", records=len(analysis.get("incidents", [])))
+            return deterministic
         items = [f"[{f.doc_id}] ({meta.get(f.doc_id, {}).get('created_date', '?')}) cause={f.root_cause or 'n/a'}; "
                  f"service={f.service or 'n/a'}; {f.summary}" for f in findings]
         rounds = 0
@@ -309,3 +324,5 @@ class RLMEngine:
         if failed:
             lines.append(f"Note: batches {failed} failed, results may be incomplete.")
         return "\n".join(lines)
+
+# acceptance-reliability-v1

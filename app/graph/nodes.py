@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.graph import memory
+from app.reliability import collection_comparison, scope_context, research_scope_query, citations_in_answer, PLACEHOLDER
 from app.graph.decision import SupervisorDecision, apply_policy, heuristic_decision
 from app.graph.deps import Deps
 from app.graph.prompts import CHITCHAT_SYSTEM, RESPONSE_SYSTEM, SUMMARY_SYSTEM, SUPERVISOR_SYSTEM
@@ -73,6 +74,10 @@ async def supervisor(state: dict, deps: Deps) -> dict:
         decision, source = heuristic_decision(q), "heuristic"
         deps.emit(rid, "policy", "supervisor", note=f"supervisor LLM unavailable or invalid ({type(exc).__name__}), "
                                                     "heuristic routing used")
+    if collection_comparison(q) or collection_comparison(decision.standalone_query):
+        decision.intent = "deep_research"
+        decision.standalone_query = research_scope_query(decision.standalone_query or q, scope_context(state))
+        deps.emit(rid, "policy", "supervisor", note="Collection-wide comparison requires research, not top-k retrieval")
     decision, user_notes, internal = apply_policy(decision, user.role, q, deps.departments(user))
     for note in user_notes + internal:
         deps.emit(rid, "policy", "supervisor", note=note)
@@ -151,7 +156,7 @@ async def research(state: dict, deps: Deps) -> dict:
         return {"research": {"error": err}, "route": {**route, "intent": "knowledge_qa"},
                 "policy_notes": (state.get("policy_notes") or []) + ["Deep research was unavailable, so a standard search was used instead."]}
     meta = res.model_dump(exclude={"analysis", "answer"})
-    return {"research": meta, "draft_answer": res.answer, "evidence_ids": list(dict.fromkeys(res.relevant_doc_ids)),
+    return {"research_scope": {"question": scope_context(state) if collection_comparison(q) and scope_context(state) else q, "doc_ids": list(res.relevant_doc_ids)}, "research": meta, "draft_answer": res.answer, "evidence_ids": list(dict.fromkeys(res.relevant_doc_ids)),
             "analysis_text": json.dumps(res.analysis, default=str), "attempts": 1}
 
 
@@ -214,17 +219,22 @@ async def response(state: dict, deps: Deps) -> dict:
 
 # ------------------------------------------------------------------ validate (guardrails)
 def _build_citations(final: str, evidence: list[dict], evidence_ids: list[str], research_mode: bool) -> list[dict]:
-    cited = {i.split("#")[0] for i in ID_RX.findall(final)}
+    cited = citations_in_answer(final)
+    if not cited:
+        return []
     if research_mode:
-        return [{"doc_id": d} for d in evidence_ids if d in cited or not cited]
-    by_doc: dict[str, dict] = {}
+        return [{"doc_id": d} for d in evidence_ids if d in cited]
+    by_doc = {}
     for h in evidence:
-        if cited and h["doc_id"] not in cited:
+        if h["doc_id"] not in cited and h["chunk_id"] not in cited:
             continue
-        c = by_doc.setdefault(h["doc_id"], {"doc_id": h["doc_id"], "title": h["title"], "document_type": h["document_type"],
-                                            "created_date": h["created_date"], "chunks": [], "top_score": h["score"]})
-        c["chunks"].append(h["chunk_id"])
+        item = by_doc.setdefault(h["doc_id"], {"doc_id": h["doc_id"], "title": h["title"],
+            "document_type": h["document_type"], "created_date": h["created_date"],
+            "chunks": [], "top_score": h["score"]})
+        item["chunks"].append(h["chunk_id"])
     return list(by_doc.values())
+
+
 
 
 async def validate(state: dict, deps: Deps) -> dict:
@@ -255,10 +265,10 @@ async def validate(state: dict, deps: Deps) -> dict:
     else:
         final = strip_invalid_citations(draft, docs, chunks)
         action = "sanitized" if final != draft else "passed"
-        if has_evidence and not ID_RX.search(final) and "could not find" not in final.lower() and not research_mode:
-            top = list(dict.fromkeys(h["chunk_id"] for h in evidence))[:3]
-            final += "\n\nSources: " + ", ".join(f"[{c}]" for c in top)
-            action = "sanitized"
+        final = PLACEHOLDER.sub("", final)
+        if has_evidence and not citations_in_answer(final) and not result.ok:
+            final = "I could not produce a verifiably cited answer from the available evidence. Please retry or refine the question."
+            action = "replaced"
     notes = state.get("policy_notes") or []
     if notes:
         final += "\n\n" + " ".join(notes)
@@ -297,3 +307,5 @@ async def update_memory(state: dict, deps: Deps) -> dict:
               summary_chars=len(summary), episodes=len(episodes), recent_topics=profile["recent_topics"][-2:])
     return {"messages": [assistant], "memory_summary": summary, "summarized_upto": upto, "profile": profile,
             "episodes": episodes}
+
+# acceptance-reliability-v1

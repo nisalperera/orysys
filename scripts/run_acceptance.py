@@ -94,6 +94,11 @@ def evaluate(case, final, events):
     check('nonempty final answer',bool(answer.strip()))
     check('no internal error event',not events_of(events,'error'))
     if kind!='blocked': check('not blocked',not final.get('blocked'))
+    check('no placeholder citations',not re.search(r'\[(?:DOC_ID|CHUNK_ID|SOURCE_ID)\]',answer,re.I))
+    if kind in {'longest','transactions'}:
+        check('bracketed evidence citation',bool(re.search(r'\[[A-Z]{2,5}-(?:\d{4}-)?\d{3}(?:#\d+)?\]',answer)))
+    if kind in {'restricted','benign','abstain'} and re.search(r'could not find|couldn.t find|no relevant',lower):
+        check('no unrelated sources on abstention',not docs)
     if case.get('min_turns'):
         check('memory has preceding messages',bool(loaded) and loaded[-1].get('messages',0)>=2*(case['min_turns']-1))
         check('memory turn count',bool(memory) and memory[-1].get('turns',0)>=case['min_turns'])
@@ -239,3 +244,5 @@ def main():
     return 2 if summary['error'] else (1 if summary['fail'] else 0)
 
 if __name__=='__main__': sys.exit(main())
+
+# acceptance-reliability-v1
