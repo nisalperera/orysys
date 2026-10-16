@@ -30,12 +30,46 @@ def _base(i: str) -> str:
     return i.split("#")[0]
 
 
-def invalid_ids(answer: str, allowed_doc_ids: set[str], allowed_chunk_ids: set[str]) -> list[str]:
+def _allowed_mention(
+    answer: str,
+    match: re.Match,
+    mentioned_ids: set[str],
+) -> bool:
+    """Allow user-provided IDs in prose, never inside source brackets."""
+    if match.group(0) not in mentioned_ids:
+        return False
+
+    bracket_spans = re.finditer(r"\[[^\]\n]*\]", answer)
+    return not any(
+        bracket.start() <= match.start() < bracket.end()
+        for bracket in bracket_spans
+    )
+
+
+def invalid_ids(
+    answer: str,
+    allowed_doc_ids: set[str],
+    allowed_chunk_ids: set[str],
+    mentioned_ids: set[str] | None = None,
+) -> list[str]:
+    mentioned_ids = mentioned_ids or set()
     bad = []
-    for m in ID_RX.findall(answer):
-        ok = (m in allowed_chunk_ids) if "#" in m else (m in allowed_doc_ids)
-        if not ok and m not in bad:
-            bad.append(m)
+
+    for match in ID_RX.finditer(answer):
+        identifier = match.group(0)
+
+        supported = (
+            identifier in allowed_chunk_ids
+            if "#" in identifier
+            else identifier in allowed_doc_ids
+        )
+
+        if supported or _allowed_mention(answer, match, mentioned_ids):
+            continue
+
+        if identifier not in bad:
+            bad.append(identifier)
+
     return bad
 
 
@@ -51,8 +85,14 @@ def ungrounded_numbers(answer: str, evidence_text: str) -> list[str]:
     return out
 
 
-def validate_answer(answer: str, allowed_doc_ids: set[str], allowed_chunk_ids: set[str], evidence_text: str,
-                    has_evidence: bool) -> ValidationResult:
+def validate_answer(
+    answer: str,
+    allowed_doc_ids: set[str],
+    allowed_chunk_ids: set[str],
+    evidence_text: str,
+    has_evidence: bool,
+    mentioned_ids: set[str] | None = None,
+) -> ValidationResult:
     issues: list[dict] = []
     text = (answer or "").strip()
     if len(text) < 3:
@@ -62,7 +102,7 @@ def validate_answer(answer: str, allowed_doc_ids: set[str], allowed_chunk_ids: s
         issues.append(_issue("secret_leak", "block", "the answer contains something that looks like a secret"))
     if PLACEHOLDER.search(text):
         issues.append(_issue("placeholder_citation", "block", "Replace citation placeholders with actual evidence IDs"))
-    bad = invalid_ids(text, allowed_doc_ids, allowed_chunk_ids)
+    bad = invalid_ids(text, allowed_doc_ids, allowed_chunk_ids, mentioned_ids=mentioned_ids)
     if bad:
         issues.append(_issue("unknown_citation", "block", f"cited ids not in the retrieved evidence: {bad}"))
     refusal = bool(_REFUSAL_RX.search(text))
@@ -74,15 +114,43 @@ def validate_answer(answer: str, allowed_doc_ids: set[str], allowed_chunk_ids: s
     return ValidationResult(not any(i["severity"] == "block" for i in issues), issues)
 
 
-def strip_invalid_citations(text: str, allowed_doc_ids: set[str], allowed_chunk_ids: set[str]) -> str:
-    bad = set(invalid_ids(text, allowed_doc_ids, allowed_chunk_ids))
+def strip_invalid_citations(
+    text: str,
+    allowed_doc_ids: set[str],
+    allowed_chunk_ids: set[str],
+    mentioned_ids: set[str] | None = None,
+) -> str:
+    mentioned_ids = mentioned_ids or set()
+
+    bad = set(
+        invalid_ids(
+            text,
+            allowed_doc_ids,
+            allowed_chunk_ids,
+            mentioned_ids=mentioned_ids,
+        )
+    )
+
     if not bad:
         return text
-    out = ID_RX.sub(lambda m: "" if m.group(0) in bad else m.group(0), text)
+
+    def replace(match: re.Match) -> str:
+        identifier = match.group(0)
+
+        if identifier not in bad:
+            return identifier
+
+        if _allowed_mention(text, match, mentioned_ids):
+            return identifier
+
+        return ""
+
+    out = ID_RX.sub(replace, text)
     out = re.sub(r"\[\s*,\s*", "[", out)
     out = re.sub(r"\s*,\s*\]", "]", out)
     out = re.sub(r",\s*,", ",", out)
     out = re.sub(r"\s*\[\s*\]", "", out)
+
     return re.sub(r"[ \t]{2,}", " ", out)
 
 

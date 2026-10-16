@@ -1,5 +1,7 @@
 # Configuration guide
 
+See [security and reliability update notes](docs/security_review_changes.md) for shared model endpoint behavior, sanitized activity errors, tracing, and validation limitations.
+
 ## Configuration sources
 
 Application settings are defined in `app/config.py`.

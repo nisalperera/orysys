@@ -238,7 +238,10 @@ def test_reduce_failure_uses_deterministic_summary():
 def test_bad_json_twice_marks_batch_failed():
     eng, _ = engine(FakeLLM(bad_json=True))
     res = run(eng.run(USERS["viewer1"], QUESTION))
-    assert len(res.failed_batches) == 2 and "No relevant documents" in res.answer
+    assert len(res.failed_batches) == 2
+    assert res.degraded is True
+    assert "could not be analysed" in res.answer
+    assert "No relevant documents" not in res.answer
 
 
 def test_hallucinated_citation_flagged():

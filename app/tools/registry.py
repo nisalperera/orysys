@@ -5,6 +5,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pydantic import BaseModel
+from app.trace_safety import safe_traceable
 
 log = logging.getLogger("tools")
 class ToolError(Exception):
@@ -29,6 +30,11 @@ class Registry:
             raise ValueError("duplicate tool")
         self.specs[spec.name] = spec
 
+    @safe_traceable(
+        name="authorized_tool", run_type="tool",
+        process_inputs=lambda values: {"payload": "redacted"},
+        process_outputs=lambda values: {"payload": "redacted"},
+    )
     async def execute(self, user_id, name, arguments, emit=None):
         user = self.users.get(user_id)
         spec = self.specs.get(name)

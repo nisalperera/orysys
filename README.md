@@ -1,5 +1,7 @@
 # Lanka Meridian Bank AI Assistant
 
+See [security and reliability update notes](docs/security_review_changes.md) for the manual-merge audit, validation commands and outstanding assessment items.
+
 An assessment proof of concept for an enterprise knowledge assistant built with FastAPI, Streamlit, LangGraph and Pinecone.
 
 The assistant answers questions using a synthetic organizational document collection, maintains conversational context during a session, performs bounded multi-step research, and exposes agent activity through a streaming interface.
@@ -28,8 +30,8 @@ Latest reported failure-drill result:
 
 | Metric | Result |
 |---|---:|
-| Test cases | 13 |
-| Passed | 13 |
+| Test cases | 14 |
+| Passed | 14 |
 | Failed | 0 |
 | Errors | 0 |
 | Skipped | 0 |
@@ -873,11 +875,11 @@ Expected successful summary:
 
 ```json
 {
-  "tests": 13,
+  "tests": 14,
   "failed": 0,
   "errors": 0,
   "skipped": 0,
-  "passed": 13,
+  "passed": 14,
   "complete": true,
   "pytest_exit_code": 0
 }

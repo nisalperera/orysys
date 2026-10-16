@@ -26,6 +26,8 @@ from pydantic import ValidationError
 from app.auth.models import User
 from app.retrieval.schemas import Hit, SearchRequest
 from app.rlm.catalog import Catalog
+from app.rlm.errors import is_permanent
+from app.rlm.evidence_policy import supported_findings
 from app.reliability import task_for_user, render_extreme
 from app.rlm.guard import reconcile_select
 from app.rlm.jsonutil import extract_json, strip_think
@@ -83,9 +85,11 @@ class RLMEngine:
                 return strip_think(await asyncio.wait_for(self.llm(messages), self.cfg.llm_timeout_sec))
             except Exception as exc:  # noqa: BLE001
                 last = exc
+                if is_permanent(exc):
+                    break
                 if attempt < self.cfg.llm_retries:
                     await asyncio.sleep(self.cfg.retry_backoff_sec * (attempt + 1))
-        raise LLMCallError(f"{type(last).__name__}: {last}") from last
+        raise LLMCallError("Language model request failed; analysis could not be completed.") from last
 
     # ---------------------------------------------------------------- plan
     async def _make_plan(self, user: User, question: str, today: date, run: _Run) -> Plan:
@@ -159,9 +163,12 @@ class RLMEngine:
             run.reasons.append("All selected documents classified irrelevant after recheck; completeness not established")
             await self._emit("relevance_warning", selected=len(docs), analysed=len(analysed))
         if not findings:
-            msg = "No relevant documents were found for this request."
-            if docs and analysed:
+            if batch_results and all(batch.error for batch in batch_results):
+                msg = "The documents could not be analysed because a required service failed. Please try again."
+            elif docs and analysed:
                 msg = "I could not establish relevance for the selected documents after a recheck. This analysis is incomplete; please retry or refine the request."
+            else:
+                msg = "No relevant documents were found for this request."
             if failed:
                 msg += " Some batches failed, so the search may be incomplete."
             return self._result(msg, plan, docs, truncated, failed, analysis, run, findings)
@@ -192,14 +199,18 @@ class RLMEngine:
             async with run.sem:
                 retrieved = await self.retriever.search(user, req)
         except Exception as exc:  # noqa: BLE001  (RetrievalError, validation, anything)
-            await self._emit("batch_failed", batch_id=batch_id, error=str(exc))
-            return [BatchResult(batch_id=batch_id, depth=0, doc_ids=ids, error=f"retrieval: {exc}")]
+            log.warning("batch retrieval failed: %s", type(exc).__name__)
+            await self._emit("batch_failed", batch_id=batch_id, error="retrieval_unavailable")
+            return [BatchResult(batch_id=batch_id, depth=0, doc_ids=ids, error="retrieval_unavailable")]
         await self._emit("retrieval", batch_id=batch_id, hits=len(retrieved.hits), degraded=retrieved.degraded)
         results = await self._analyze_hits(plan, group, retrieved.hits, 0, batch_id, run)
         if retrieved.hits and not any(f.relevant for b in results for f in b.findings) and not any(b.error for b in results):
             await self._emit("relevance_retry", batch_id=batch_id)
             corrected = plan.model_copy(update={"analyze_question": task_for_user(run.question)})
             results = await self._analyze_hits(corrected, group, retrieved.hits, 0, batch_id, run)
+        if retrieved.degraded:
+            for result in results:
+                result.warnings.append("Retrieval was degraded; evidence coverage may be incomplete")
         await self._emit("batch_done", batch_id=batch_id, findings=sum(len(r.findings) for r in results),
                          sub_batches=len(results))
         return results
@@ -274,8 +285,9 @@ class RLMEngine:
             if f.doc_id not in allowed:  # hallucinated document id
                 res.warnings.append(f"dropped finding for unknown doc {f.doc_id}")
                 continue
-            f.evidence = [e for e in f.evidence if e in valid_chunks]
-            res.findings.append(f)
+            supported, warnings = supported_findings([f], valid_chunks, hits)
+            res.warnings.extend(warnings)
+            res.findings.extend(supported)
         return res
 
     # ---------------------------------------------------------------- reduce

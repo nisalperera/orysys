@@ -4,6 +4,7 @@ The enterprise adapter is MOCK DATA, not an MCP transport. No arbitrary Python e
 """
 from pydantic import BaseModel, ConfigDict, Field
 from app.auth.models import USERS
+from app.trace_safety import safe_traceable
 from app.retrieval.schemas import SearchRequest
 from app.tools.registry import Registry, Spec, ToolError
 
@@ -39,6 +40,11 @@ class AuthorizedTools:
         self.registry.register(Spec("service_catalog", CatalogArgs, ANALYST, self._catalog, timeout))
         self.registry.register(Spec("admin_diagnostics", EmptyArgs, frozenset({"admin"}), self._diagnostics, timeout))
 
+    @safe_traceable(
+        name="authorized_hybrid_search", run_type="retriever",
+        process_inputs=lambda values: {"payload": "redacted"},
+        process_outputs=lambda values: {"payload": "redacted"},
+    )
     async def _search(self, user, params):
         return await self.raw_retriever.search(user, params)
 
