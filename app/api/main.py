@@ -94,8 +94,10 @@ def create_app(service_builder=None) -> FastAPI:
             raise HTTPException(status_code=403, detail="session belongs to another user")
         return {"session_id": session_id, **final}
 
+    from app.api.tool_routes import install
+    install(app)
+
     return app
 
 
 app = create_app()
-install(app)

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="13" time="0.525" timestamp="2026-10-16T15:41:41.723244+05:30" hostname="nisal-perera.local"><testcase classname="tests.test_failure_drills" name="test_vector_database_failure_is_honest_not_hallucinated" time="0.164" /><testcase classname="tests.test_failure_drills" name="test_retrieval_timeout_finishes_with_clear_answer" time="0.026" /><testcase classname="tests.test_failure_drills" name="test_response_provider_failure_returns_extractive_evidence" time="0.014" /><testcase classname="tests.test_failure_drills" name="test_router_failure_uses_safe_heuristic" time="0.013" /><testcase classname="tests.test_failure_drills" name="test_research_failure_falls_back_and_discloses_limitation" time="0.014" /><testcase classname="tests.test_failure_drills" name="test_invalid_auth_and_request_shape_are_rejected_before_llm" time="0.007" /><testcase classname="tests.test_failure_drills" name="test_session_cannot_be_reused_by_another_user" time="0.013" /><testcase classname="tests.test_failure_drills" name="test_rate_limit_applies_before_sse_headers_and_is_per_user" time="0.020"><failure message="assert (200 == 429)&#10; +  where 200 = &lt;Response [200 OK]&gt;.status_code">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f91948bdd60&gt;
+
+    def test_rate_limit_applies_before_sse_headers_and_is_per_user(monkeypatch):
+        monkeypatch.setenv('RATE_LIMIT_CAPACITY','1')
+        monkeypatch.setenv('RATE_LIMIT_REFILL_PER_SEC','0.0001')
+        svc,deps=service()
+        with TestClient(app_for(svc)) as c:
+            assert ask(c).status_code==200
+            res=c.post('/chat/stream',headers={'X-API-Key':'dev-viewer-key'},
+                       json={'message':'pool?', 'session_id':'drill-session-002'})
+&gt;           assert res.status_code==429 and int(res.headers['Retry-After'])&gt;=1
+E           assert (200 == 429)
+E            +  where 200 = &lt;Response [200 OK]&gt;.status_code
+
+tests/test_failure_drills.py:115: AssertionError</failure></testcase><testcase classname="tests.test_failure_drills" name="test_tool_denial_is_server_enforced_and_no_role_override" time="0.007"><failure message="assert 404 == 403&#10; +  where 404 = &lt;Response [404 Not Found]&gt;.status_code">def test_tool_denial_is_server_enforced_and_no_role_override():
+        svc,deps=tool_service()
+        with TestClient(app_for(svc)) as c:
+            res=c.post('/tools/execute',headers={'X-API-Key':'dev-viewer-key'},
+                       json={'name':'enterprise_probe','arguments':{}})
+&gt;           assert res.status_code==403
+E           assert 404 == 403
+E            +  where 404 = &lt;Response [404 Not Found]&gt;.status_code
+
+tests/test_failure_drills.py:139: AssertionError</failure></testcase><testcase classname="tests.test_failure_drills" name="test_enterprise_tool_timeout_and_outage_are_safe[slow-504]" time="0.007"><failure message="assert 404 == 504&#10; +  where 404 = &lt;Response [404 Not Found]&gt;.status_code">mode = 'slow', expected = 504
+
+    @pytest.mark.parametrize('mode,expected',[('slow',504),('down',503)])
+    def test_enterprise_tool_timeout_and_outage_are_safe(mode,expected):
+        svc,deps=tool_service(mode)
+        with TestClient(app_for(svc)) as c:
+            res=c.post('/tools/execute',headers={'X-API-Key':'dev-analyst-key'},
+                       json={'name':'enterprise_probe','arguments':{}})
+&gt;       assert res.status_code==expected
+E       assert 404 == 504
+E        +  where 404 = &lt;Response [404 Not Found]&gt;.status_code
+
+tests/test_failure_drills.py:151: AssertionError</failure></testcase><testcase classname="tests.test_failure_drills" name="test_enterprise_tool_timeout_and_outage_are_safe[down-503]" time="0.006"><failure message="assert 404 == 503&#10; +  where 404 = &lt;Response [404 Not Found]&gt;.status_code">mode = 'down', expected = 503
+
+    @pytest.mark.parametrize('mode,expected',[('slow',504),('down',503)])
+    def test_enterprise_tool_timeout_and_outage_are_safe(mode,expected):
+        svc,deps=tool_service(mode)
+        with TestClient(app_for(svc)) as c:
+            res=c.post('/tools/execute',headers={'X-API-Key':'dev-analyst-key'},
+                       json={'name':'enterprise_probe','arguments':{}})
+&gt;       assert res.status_code==expected
+E       assert 404 == 503
+E        +  where 404 = &lt;Response [404 Not Found]&gt;.status_code
+
+tests/test_failure_drills.py:151: AssertionError</failure></testcase><testcase classname="tests.test_failure_drills" name="test_incomplete_answer_is_not_returned_on_turn_timeout" time="0.024" /><testcase classname="tests.test_failure_drills" name="test_disconnect_cancels_in_progress_generation" time="0.035" /></testsuite></testsuites>
