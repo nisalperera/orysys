@@ -29,3 +29,7 @@ python -m scripts.ingest --recreate    # chunk -> embed -> store in Pinecone
 36 markdown docs: 11 incidents (4 root-cause families, plus one older and one non-payment distractor),
 6 runbooks, 5 architecture docs, 5 product specs, 6 meeting notes, 3 policies.
 `MTG-006` carries a prompt-injection payload as a security test fixture.
+
+
+## T5 Streamlit UI
+Run `streamlit run ui/app.py --server.port 8501` alongside the API. See docs/T5.md for configuration, demo authentication and streaming limitations.
