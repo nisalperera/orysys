@@ -13,10 +13,12 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+import app.env  # Load .env before middleware and authentication configuration.
+
 from app.api.sse import sse_iter
 from app.api.health import public_healthcheck
 from app.api.tool_routes import install
-from app.auth.dependencies import authenticate_token
+from app.auth.dependencies import authenticate_token, validate_token_config
 from app.logging_config import log_event, request_id_var, setup_logging
 
 log = logging.getLogger("api")
@@ -38,6 +40,7 @@ def create_app(service_builder=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         setup_logging()
+        validate_token_config()
         if service_builder is not None:
             app.state.service = await service_builder()
         else:

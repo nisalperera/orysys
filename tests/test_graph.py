@@ -244,8 +244,22 @@ def test_wrap_node_isolates_failures_and_emits_events():
         raise ValueError("bad")
 
     out = run(wrap_node("boom", boom, deps)({"request_id": "x"}))
-    types = [e["type"] for e in bus.drain()]
-    assert out["node_errors"] == ["boom: ValueError"] and types == ["node_start", "state", "node_error", "node_end"]
+    events = bus.drain()
+
+    assert out["node_errors"] == ["boom: node_execution_failed"]
+
+    assert [event["type"] for event in events] == [
+        "node_start",
+        "state",
+        "node_error",
+        "node_end",
+    ]
+
+    error_event = next(
+        event for event in events
+        if event["type"] == "node_error"
+    )
+    assert error_event["data"]["error"] == "node_execution_failed"
 
 
 def test_event_bus_ordering_close_and_late_emit():

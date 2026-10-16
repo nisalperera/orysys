@@ -1,5 +1,7 @@
 # Configuration guide
 
+Authentication: omit API_TOKENS for demo keys, supply a valid JSON key-to-user mapping to replace them, or use `{}` to disable all API-key access. An explicitly invalid value fails startup and is never replaced by demo keys. See [current assumptions](docs/ASSUMPTIONS.md).
+
 See [runtime integration notes](docs/runtime_integration.md) for the shared model endpoint template, effective tool timeouts, public diagnostics and final validation status.
 
 See [security and reliability update notes](docs/security_review_changes.md) for shared model endpoint behavior, sanitized activity errors, tracing, and validation limitations.
