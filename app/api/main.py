@@ -1,7 +1,7 @@
 """FastAPI app: async endpoints, SSE streaming, auth, request ids, structured logging, safe error handling.
 
-Run:  uvicorn app.api.main:app --port 8080
-Try:  curl -N -X POST localhost:8080/chat/stream -H 'X-API-Key: dev-analyst-key' -H 'Content-Type: application/json' \
+Run:  uvicorn app.api.main:app --port 8000
+Try:  curl -N -X POST localhost:8000/chat/stream -H 'X-API-Key: dev-analyst-key' -H 'Content-Type: application/json' \
         -d '{"message": "What is the runbook for connection pool saturation?"}'
 """
 import logging
@@ -13,9 +13,12 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+import app.env  # Load .env before middleware and authentication configuration.
+
 from app.api.sse import sse_iter
+from app.api.health import public_healthcheck
 from app.api.tool_routes import install
-from app.auth.dependencies import authenticate_token
+from app.auth.dependencies import authenticate_token, validate_token_config
 from app.logging_config import log_event, request_id_var, setup_logging
 
 log = logging.getLogger("api")
@@ -37,6 +40,7 @@ def create_app(service_builder=None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         setup_logging()
+        validate_token_config()
         if service_builder is not None:
             app.state.service = await service_builder()
         else:
@@ -63,14 +67,8 @@ def create_app(service_builder=None) -> FastAPI:
 
     @app.get("/health")
     async def health(request: Request):
-        info = {"status": "ok"}
-        try:
-            from app.llm import llm_healthcheck
-            info["llm"] = await llm_healthcheck()
-            info["status"] = "ok" if info["llm"].get("ok") else "degraded"
-        except Exception as exc:  # noqa: BLE001
-            info.update(status="degraded", llm={"ok": False, "error": str(exc)[:120]})
-        return info
+        from app.llm import llm_healthcheck
+        return await public_healthcheck(llm_healthcheck)
 
     @app.post("/chat/stream")
     async def chat_stream(body: ChatRequest, request: Request, user=Depends(current_user)):
@@ -94,7 +92,6 @@ def create_app(service_builder=None) -> FastAPI:
             raise HTTPException(status_code=403, detail="session belongs to another user")
         return {"session_id": session_id, **final}
 
-    from app.api.tool_routes import install
     install(app)
 
     return app

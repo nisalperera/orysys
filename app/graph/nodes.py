@@ -17,11 +17,13 @@ from app.graph.decision import SupervisorDecision, apply_policy, heuristic_decis
 from app.graph.deps import Deps
 from app.graph.prompts import CHITCHAT_SYSTEM, RESPONSE_SYSTEM, SUMMARY_SYSTEM, SUPERVISOR_SYSTEM
 from app.graph.validators import (ID_RX, build_feedback, strip_invalid_citations, validate_answer)
-from app.observability import traceable
+from app.trace_safety import safe_traceable
+from app.security.public_status import public_degradation_reasons
 from app.retrieval.schemas import SearchRequest
 from app.rlm.jsonutil import extract_json
 from app.rlm.safety import neutralize_injection
 from app.security.input_guard import check_user_input
+from app.security.output_policy import finalize_output
 
 log = logging.getLogger("graph")
 
@@ -90,17 +92,15 @@ async def supervisor(state: dict, deps: Deps) -> dict:
 
 # ------------------------------------------------------------------ retrieval agent
 async def _search(deps: Deps, user: Any, req: SearchRequest):
-    @traceable(name="hybrid_search", run_type="retriever")
+    @safe_traceable(
+        name="hybrid_search", run_type="retriever",
+        process_inputs=lambda values: {"payload": "redacted"},
+        process_outputs=lambda values: {"payload": "redacted"},
+    )
     async def run(query: str, filters: dict, role: str):
         return await asyncio.wait_for(deps.search(user, req), deps.search_timeout)
 
-    try:
-        return await run(req.query, req.model_dump(mode="json", exclude={"query"}, exclude_none=True), user.role.value)
-    except Exception as exc:  # noqa: BLE001  tracing must never break retrieval
-        if not type(exc).__module__.startswith("langsmith"):
-            raise
-        log.warning("LangSmith tracing error, searching untraced: %s", exc)
-        return await asyncio.wait_for(deps.search(user, req), deps.search_timeout)
+    return await run(req.query, req.model_dump(mode="json", exclude={"query"}, exclude_none=True), user.role.value)
 
 
 async def retrieval(state: dict, deps: Deps) -> dict:
@@ -119,14 +119,16 @@ async def retrieval(state: dict, deps: Deps) -> dict:
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001  RetrievalError, timeout, anything
-        meta = {"status": "failed", "error": f"{type(exc).__name__}: {exc}"[:300]}
-        log.warning("retrieval failed: %s", meta["error"])
+        meta = {"status": "failed", "error": "retrieval_unavailable",
+                "degraded": True, "degraded_reasons": ["Document retrieval was unavailable."]}
+        log.warning("retrieval failed: %s", type(exc).__name__)
         deps.emit(rid, "retrieval", "retrieval", **meta)
         return {"retrieved": [], "retrieval_meta": meta}
     hits = [h.model_dump() for h in res.hits]
     meta = {"status": "ok", "hits": len(hits), "namespaces": res.namespaces_searched,
             "chunks": [{"id": h["chunk_id"], "score": round(h["score"], 3), "section": h["section"]} for h in hits],
-            "failed_namespaces": res.failed_namespaces, "degraded": res.degraded, "degraded_reasons": res.degraded_reasons,
+            "failed_namespaces": res.failed_namespaces, "degraded": res.degraded,
+            "degraded_reasons": public_degradation_reasons(res.degraded_reasons),
             "no_relevant_results": res.no_relevant_results, "dropped_by_cap": res.dropped_by_doc_cap,
             "dropped_below_min": res.dropped_below_min_score, "alpha": res.alpha, "embed_ms": res.embed_ms,
             "query_ms": res.query_ms, "doc_ids": list(dict.fromkeys(h["doc_id"] for h in hits))}
@@ -150,10 +152,9 @@ async def research(state: dict, deps: Deps) -> dict:
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001  degrade: fall back to the standard search path
-        err = f"{type(exc).__name__}: {exc}"[:300]
-        log.warning("research failed: %s", err)
-        deps.emit(rid, "policy", "research", note=f"deep research failed ({err}), falling back to standard search")
-        return {"research": {"error": err}, "route": {**route, "intent": "knowledge_qa"},
+        log.warning("research failed: %s", type(exc).__name__)
+        deps.emit(rid, "policy", "research", note="Deep research was unavailable; using standard search.")
+        return {"research": {"error": "research_unavailable", "degraded": True}, "route": {**route, "intent": "knowledge_qa"},
                 "policy_notes": (state.get("policy_notes") or []) + ["Deep research was unavailable, so a standard search was used instead."]}
     meta = res.model_dump(exclude={"analysis", "answer"})
     return {"research_scope": {"question": scope_context(state) if collection_comparison(q) and scope_context(state) else q, "doc_ids": list(res.relevant_doc_ids)}, "research": meta, "draft_answer": res.answer, "evidence_ids": list(dict.fromkeys(res.relevant_doc_ids)),
@@ -211,7 +212,7 @@ async def response(state: dict, deps: Deps) -> dict:
         raise
     except Exception as exc:  # noqa: BLE001  LLM failure: extractive fallback, never a crash
         log.warning("response generation failed: %s: %s", type(exc).__name__, exc)
-        deps.emit(rid, "generation_failed", "response", error=f"{type(exc).__name__}: {exc}"[:300])
+        deps.emit(rid, "generation_failed", "response", error="generation_unavailable")
         text = _extractive_fallback(evidence) if evidence else LLM_DOWN_MESSAGE
         return {"draft_answer": text, "attempts": attempt,
                 "node_errors": (state.get("node_errors") or []) + ["response: llm_failed"]}
@@ -249,33 +250,43 @@ async def validate(state: dict, deps: Deps) -> dict:
         docs = {h["doc_id"] for h in evidence}
         chunks = {h["chunk_id"] for h in evidence}
         ev_text, has_evidence = "\n".join(h["text"] for h in evidence), bool(evidence)
-    user_ids = set(ID_RX.findall(state.get("question", "")))  # ids the user typed are not hallucinations
-    docs |= {i.split("#")[0] for i in user_ids}
-    chunks |= {i for i in user_ids if "#" in i}
 
-    result = validate_answer(draft, docs, chunks, ev_text, has_evidence)
+    # User-provided IDs may appear in prose, but cannot authorize citations.
+    mentioned_ids = set(ID_RX.findall(state.get("question", "")))
+
+    result = validate_answer(
+        draft,
+        docs,
+        chunks,
+        ev_text,
+        has_evidence,
+        mentioned_ids=mentioned_ids,
+    )
     codes = {i["code"] for i in result.issues}
     if not result.ok and not research_mode and attempt < deps.max_attempts and "secret_leak" not in codes:
         deps.emit(rid, "validation", "validate", ok=False, action="retry", attempt=attempt, issues=result.issues)
         return {"validation": {"ok": False, "retry": True, "issues": result.issues, "feedback": build_feedback(result.issues)}}
 
+    final, action, final_check = finalize_output(
+        draft,
+        docs,
+        chunks,
+        ev_text,
+        has_evidence,
+        mentioned_ids=mentioned_ids,
+    )
     if "secret_leak" in codes:
         log.error("secret leak blocked in answer", extra={"extra_fields": {"user_id": state.get("user_id")}})
-        final, action = SECRET_MESSAGE, "replaced"
-    else:
-        final = strip_invalid_citations(draft, docs, chunks)
-        action = "sanitized" if final != draft else "passed"
-        final = PLACEHOLDER.sub("", final)
-        if has_evidence and not citations_in_answer(final) and not result.ok:
-            final = "I could not produce a verifiably cited answer from the available evidence. Please retry or refine the question."
-            action = "replaced"
     notes = state.get("policy_notes") or []
     if notes:
         final += "\n\n" + " ".join(notes)
-    degraded = bool(state.get("node_errors")) or bool((state.get("retrieval_meta") or {}).get("degraded")) \
-        or bool((state.get("research") or {}).get("degraded"))
-    deps.emit(rid, "validation", "validate", ok=result.ok, action=action, attempt=attempt, issues=result.issues)
-    return {"validation": {"ok": result.ok, "retry": False, "issues": result.issues, "action": action, "degraded": degraded},
+    retrieval_info = state.get("retrieval_meta") or {}
+    research_info = state.get("research") or {}
+    degraded = (bool(state.get("node_errors")) or bool(retrieval_info.get("degraded"))
+                or retrieval_info.get("status") == "failed" or bool(research_info.get("degraded"))
+                or bool(research_info.get("error")) or action == "replaced")
+    deps.emit(rid, "validation", "validate", ok=result.ok, final_ok=final_check.ok, action=action, attempt=attempt, issues=result.issues)
+    return {"validation": {"ok": result.ok, "final_ok": final_check.ok, "retry": False, "issues": result.issues, "action": action, "degraded": degraded},
             "final_answer": final, "citations": _build_citations(final, evidence, state.get("evidence_ids") or [], research_mode)}
 
 

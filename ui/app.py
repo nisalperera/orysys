@@ -17,7 +17,7 @@ st.set_page_config(page_title='Lanka Meridian Bank Assistant', layout='wide')
 USERS={'Viewer':('viewer1','UI_VIEWER_API_KEY','dev-viewer-key'),
        'Analyst':('analyst1','UI_ANALYST_API_KEY','dev-analyst-key'),
        'Administrator':('admin1','UI_ADMIN_API_KEY','dev-admin-key')}
-base=os.getenv('UI_API_BASE_URL','http://127.0.0.1:8080')
+base=os.getenv('UI_API_BASE_URL','http://127.0.0.1:8000')
 
 def reset():
     st.session_state.session_id=uuid.uuid4().hex

@@ -1,4 +1,4 @@
-"""Node wrapper shared by the LangGraph builder and the test runner: activity events, timing, error isolation."""
+"""Graph node activity, timing and failure isolation."""
 import asyncio
 import logging
 import time
@@ -18,10 +18,18 @@ def wrap_node(name: str, fn, deps):
             update = await fn(state, deps)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # noqa: BLE001  one failing node must not kill the turn
+        except Exception:
             log.exception("node %s failed", name)
-            deps.emit(rid, "node_error", name, error=f"{type(exc).__name__}: {exc}"[:300])
-            update = {"node_errors": (state.get("node_errors") or []) + [f"{name}: {type(exc).__name__}"]}
+            deps.emit(
+                rid,
+                "node_error",
+                name,
+                error="node_execution_failed",
+            )
+            update = {
+                "node_errors": (state.get("node_errors") or [])
+                + [f"{name}: node_execution_failed"]
+            }
         deps.emit(rid, "node_end", name, ms=int((time.perf_counter() - t0) * 1000))
         return update
 

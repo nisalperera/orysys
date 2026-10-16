@@ -1,15 +1,15 @@
 # T5 Streamlit interface
 
-Run the existing API on port 8080 (one worker). In a second terminal:
+Run the existing API on port 8000 (one worker). In a second terminal:
 
-    streamlit run ui/app.py --server.port 8501
+    streamlit run ui/app.py --server.port 3000
 
-Open http://localhost:8501. The Streamlit server calls FastAPI; no browser CORS configuration is required.
+Open http://localhost:3000. The Streamlit server calls FastAPI; no browser CORS configuration is required.
 Dependencies already in the project: streamlit, httpx, python-dotenv.
 
 Config (add to .env.example and config_guide.md if installing manually):
 
-    UI_API_BASE_URL=http://127.0.0.1:8080
+    UI_API_BASE_URL=http://127.0.0.1:8000
     UI_VIEWER_API_KEY=dev-viewer-key
     UI_ANALYST_API_KEY=dev-analyst-key
     UI_ADMIN_API_KEY=dev-admin-key

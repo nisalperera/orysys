@@ -27,7 +27,7 @@ No push/deployment or remote state changes are performed.
 RATE_LIMIT_CAPACITY=10
 RATE_LIMIT_REFILL_PER_SEC=0.5
 These environment variables are already in the original .env.example. They are read at app construction.
-Use uvicorn app.api.main:app --port 8080 --workers 1.
+Use uvicorn app.api.main:app --port 8000 --workers 1.
 
 ## Verify
 PYTHONPATH=. pytest -q tests

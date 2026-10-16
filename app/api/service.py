@@ -66,12 +66,16 @@ class ChatService:
         if lock.locked():
             bus.emit("state", None, label="Waiting for the previous request in this session")
         t0 = time.perf_counter()
-        try:
+        async def execute_turn():
             async with lock:
-                result = await asyncio.wait_for(
-                    self.graph.ainvoke({"request_id": rid, "user_id": user.user_id, "question": message},
-                                       turn_config(session_id, user.user_id, user.role.value, rid)),
-                    self.turn_timeout)
+                return await self.graph.ainvoke(
+                    {"request_id": rid, "user_id": user.user_id, "question": message},
+                    turn_config(session_id, user.user_id, user.role.value, rid),
+                )
+
+        try:
+            # Bound queue waiting as well as graph execution.
+            result = await asyncio.wait_for(execute_turn(), self.turn_timeout)
             bus.emit("final", None, **self._payload(result, rid, t0))
         except asyncio.CancelledError:
             raise
@@ -89,6 +93,6 @@ class ChatService:
         return {"answer": result.get("final_answer", ""), "citations": result.get("citations", []),
                 "intent": (result.get("route") or {}).get("intent"), "blocked": bool(result.get("blocked_reason")),
                 "degraded": bool(val.get("degraded")) or bool(result.get("node_errors")),
-                "validation": {"ok": val.get("ok"), "action": val.get("action"), "issues": val.get("issues", [])},
+                "validation": {"ok": val.get("ok"), "final_ok": val.get("final_ok"), "action": val.get("action"), "issues": val.get("issues", [])},
                 "attempts": result.get("attempts", 0), "request_id": rid,
                 "latency_ms": int((time.perf_counter() - t0) * 1000)}

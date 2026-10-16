@@ -1,6 +1,6 @@
 """API acceptance suite for the Orysys assistant. Uses existing httpx dependency.
 
-python -m scripts.run_acceptance --base-url http://127.0.0.1:8080
+python -m scripts.run_acceptance --base-url http://127.0.0.1:8000
 python -m scripts.run_acceptance --only viewer-runbook,viewer-followup
 python -m scripts.run_acceptance --self-test
 
@@ -174,7 +174,7 @@ def self_test():
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--base-url',default='http://127.0.0.1:8080')
+    p.add_argument('--base-url',default='http://127.0.0.1:8000', help='Base URL of the API to test')
     p.add_argument('--out',default='acceptance-results')
     p.add_argument('--only',help='Comma-separated case IDs. Run full suite for dependent follow-ups.')
     p.add_argument('--timeout',type=float,default=270)

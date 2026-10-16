@@ -1,7 +1,7 @@
 """Terminal client for the SSE API: prints the activity panel events and streams the answer.
 
 python -m scripts.chat_cli analyst1 "What is the runbook for connection pool saturation?"
-python -m scripts.chat_cli viewer1 "And how was it fixed?" --session my-session-0001 --url http://localhost:8080
+python -m scripts.chat_cli viewer1 "And how was it fixed?" --session my-session-0001 --url http://localhost:8000
 """
 import argparse
 import json
@@ -56,7 +56,7 @@ def main() -> None:
     ap.add_argument("user", choices=KEYS)
     ap.add_argument("message")
     ap.add_argument("--session", default=uuid.uuid4().hex)
-    ap.add_argument("--url", default="http://localhost:8080")
+    ap.add_argument("--url", default="http://localhost:8000")
     a = ap.parse_args()
     print(f"session: {a.session}")
     with httpx.stream("POST", f"{a.url}/chat/stream", headers={"X-API-Key": KEYS[a.user]},
