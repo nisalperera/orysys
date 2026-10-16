@@ -174,3 +174,17 @@ def test_disconnect_cancels_in_progress_generation():
         await asyncio.sleep(.02)
         assert not deps.buses
     asyncio.run(run())
+
+def test_factory_registers_tool_route_for_injected_services():
+    svc, _ = service()
+    app = app_for(svc)
+
+    assert "/tools/execute" in app.openapi()["paths"]
+
+    matches = [
+        route
+        for route in app.routes
+        if getattr(route, "path", None) == "/tools/execute"
+        and "POST" in (getattr(route, "methods", None) or set())
+    ]
+    assert len(matches) == 1

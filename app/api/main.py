@@ -1,7 +1,7 @@
 """FastAPI app: async endpoints, SSE streaming, auth, request ids, structured logging, safe error handling.
 
-Run:  uvicorn app.api.main:app --port 8080
-Try:  curl -N -X POST localhost:8080/chat/stream -H 'X-API-Key: dev-analyst-key' -H 'Content-Type: application/json' \
+Run:  uvicorn app.api.main:app --port 8000
+Try:  curl -N -X POST localhost:8000/chat/stream -H 'X-API-Key: dev-analyst-key' -H 'Content-Type: application/json' \
         -d '{"message": "What is the runbook for connection pool saturation?"}'
 """
 import logging

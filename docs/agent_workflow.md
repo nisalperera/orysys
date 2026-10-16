@@ -66,4 +66,4 @@ calls are child runs, and the Pinecone search is a `hybrid_search` retriever run
 
 ## API
 `POST /chat/stream` (SSE), `POST /chat` (JSON), `GET /health`. Auth: `X-API-Key` (hardcoded users, Option A). Run with
-`uvicorn app.api.main:app --port 8080`, try `python -m scripts.chat_cli analyst1 "..."`.
+`uvicorn app.api.main:app --port 8000`, try `python -m scripts.chat_cli analyst1 "..."`.

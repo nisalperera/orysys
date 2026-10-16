@@ -29,7 +29,7 @@ SERVICES = {
     "card-switch-gw": {"service": "card-switch-gw", "owner": "Cards Platform"},
 }
 
-class T4Tools:
+class AuthorizedTools:
     def __init__(self, retriever, engine_factory, emit=None, timeout=25, research_timeout=150):
         self.raw_retriever, self.engine_factory = retriever, engine_factory
         self.emit = emit

@@ -1,0 +1,73 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+
+    image: orysys-api:local
+    init: true
+
+    env_file:
+      - .env
+
+    environment:
+      DOCS_DIR: /app/data/docs
+      BM25_PARAMS_PATH: /app/data/bm25_params.json
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    volumes:
+      - type: bind
+        source: ./data
+        target: /app/data
+        read_only: true
+        bind:
+          create_host_path: false
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=3).close()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui
+
+    image: orysys-ui:local
+    init: true
+
+    environment:
+      UI_API_BASE_URL: http://api:8000
+      UI_VIEWER_API_KEY: "${UI_VIEWER_API_KEY:-dev-viewer-key}"
+      UI_ANALYST_API_KEY: "${UI_ANALYST_API_KEY:-dev-analyst-key}"
+      UI_ADMIN_API_KEY: "${UI_ADMIN_API_KEY:-dev-admin-key}"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+
+    ports:
+      - "127.0.0.1:3000:3000"
+
+    depends_on:
+      api:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/_stcore/health', timeout=3).close()"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

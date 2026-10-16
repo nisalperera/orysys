@@ -14,7 +14,7 @@ from app.rlm.catalog import Catalog
 from app.rlm.executor import RLMEngine
 from app.rlm.llm_adapter import from_langchain
 from app.rlm.models import RLMConfig
-from app.tools.t4_wiring import T4Tools
+from app.tools.authorized_tools import AuthorizedTools
 
 log = logging.getLogger("wiring")
 
@@ -44,12 +44,12 @@ async def build_service() -> ChatService:
         )
 
     # Shared registry for standard retrieval and the tools API.
-    guarded = T4Tools(retriever, raw_engine)
+    guarded = AuthorizedTools(retriever, raw_engine)
 
     def make_engine(emit):
         # Per-request wrapper prevents concurrent research requests
         # from sharing their event callbacks.
-        return T4Tools(
+        return AuthorizedTools(
             retriever,
             raw_engine,
             emit=emit,
