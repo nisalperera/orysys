@@ -40,6 +40,13 @@ class AuthorizedTools:
         self.registry.register(Spec("service_catalog", CatalogArgs, ANALYST, self._catalog, timeout))
         self.registry.register(Spec("admin_diagnostics", EmptyArgs, frozenset({"admin"}), self._diagnostics, timeout))
 
+    @classmethod
+    def from_settings(cls, retriever, engine_factory, settings, emit=None):
+        return cls(
+            retriever, engine_factory, emit=emit,
+            timeout=settings.tool_timeout_sec,
+        )
+
     @safe_traceable(
         name="authorized_hybrid_search", run_type="retriever",
         process_inputs=lambda values: {"payload": "redacted"},

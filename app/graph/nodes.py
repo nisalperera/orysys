@@ -11,13 +11,14 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.graph import memory, state
+from app.graph import memory
 from app.reliability import collection_comparison, scope_context, research_scope_query, citations_in_answer, PLACEHOLDER
 from app.graph.decision import SupervisorDecision, apply_policy, heuristic_decision
 from app.graph.deps import Deps
 from app.graph.prompts import CHITCHAT_SYSTEM, RESPONSE_SYSTEM, SUMMARY_SYSTEM, SUPERVISOR_SYSTEM
 from app.graph.validators import (ID_RX, build_feedback, strip_invalid_citations, validate_answer)
-from app.observability import traceable
+from app.trace_safety import safe_traceable
+from app.security.public_status import public_degradation_reasons
 from app.retrieval.schemas import SearchRequest
 from app.rlm.jsonutil import extract_json
 from app.rlm.safety import neutralize_injection
@@ -91,17 +92,15 @@ async def supervisor(state: dict, deps: Deps) -> dict:
 
 # ------------------------------------------------------------------ retrieval agent
 async def _search(deps: Deps, user: Any, req: SearchRequest):
-    @traceable(name="hybrid_search", run_type="retriever")
+    @safe_traceable(
+        name="hybrid_search", run_type="retriever",
+        process_inputs=lambda values: {"payload": "redacted"},
+        process_outputs=lambda values: {"payload": "redacted"},
+    )
     async def run(query: str, filters: dict, role: str):
         return await asyncio.wait_for(deps.search(user, req), deps.search_timeout)
 
-    try:
-        return await run(req.query, req.model_dump(mode="json", exclude={"query"}, exclude_none=True), user.role.value)
-    except Exception as exc:  # noqa: BLE001  tracing must never break retrieval
-        if not type(exc).__module__.startswith("langsmith"):
-            raise
-        log.warning("LangSmith tracing error, searching untraced: %s", exc)
-        return await asyncio.wait_for(deps.search(user, req), deps.search_timeout)
+    return await run(req.query, req.model_dump(mode="json", exclude={"query"}, exclude_none=True), user.role.value)
 
 
 async def retrieval(state: dict, deps: Deps) -> dict:
@@ -128,7 +127,8 @@ async def retrieval(state: dict, deps: Deps) -> dict:
     hits = [h.model_dump() for h in res.hits]
     meta = {"status": "ok", "hits": len(hits), "namespaces": res.namespaces_searched,
             "chunks": [{"id": h["chunk_id"], "score": round(h["score"], 3), "section": h["section"]} for h in hits],
-            "failed_namespaces": res.failed_namespaces, "degraded": res.degraded, "degraded_reasons": res.degraded_reasons,
+            "failed_namespaces": res.failed_namespaces, "degraded": res.degraded,
+            "degraded_reasons": public_degradation_reasons(res.degraded_reasons),
             "no_relevant_results": res.no_relevant_results, "dropped_by_cap": res.dropped_by_doc_cap,
             "dropped_below_min": res.dropped_below_min_score, "alpha": res.alpha, "embed_ms": res.embed_ms,
             "query_ms": res.query_ms, "doc_ids": list(dict.fromkeys(h["doc_id"] for h in hits))}
@@ -250,8 +250,8 @@ async def validate(state: dict, deps: Deps) -> dict:
         docs = {h["doc_id"] for h in evidence}
         chunks = {h["chunk_id"] for h in evidence}
         ev_text, has_evidence = "\n".join(h["text"] for h in evidence), bool(evidence)
-    
-    # User-provided IDs may appear in prose, but cannot authorize citations.    
+
+    # User-provided IDs may appear in prose, but cannot authorize citations.
     mentioned_ids = set(ID_RX.findall(state.get("question", "")))
 
     result = validate_answer(
@@ -285,7 +285,7 @@ async def validate(state: dict, deps: Deps) -> dict:
     degraded = (bool(state.get("node_errors")) or bool(retrieval_info.get("degraded"))
                 or retrieval_info.get("status") == "failed" or bool(research_info.get("degraded"))
                 or bool(research_info.get("error")) or action == "replaced")
-    deps.emit(rid, "validation", "validate", ok=result.ok, action=action, attempt=attempt, issues=result.issues)
+    deps.emit(rid, "validation", "validate", ok=result.ok, final_ok=final_check.ok, action=action, attempt=attempt, issues=result.issues)
     return {"validation": {"ok": result.ok, "final_ok": final_check.ok, "retry": False, "issues": result.issues, "action": action, "degraded": degraded},
             "final_answer": final, "citations": _build_citations(final, evidence, state.get("evidence_ids") or [], research_mode)}
 

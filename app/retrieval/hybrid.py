@@ -109,7 +109,7 @@ class HybridRetriever:
             dense = await self.embed_query(req.query)
         except Exception as exc:  # noqa: BLE001
             log.error("embedding failed: %s", exc)
-            raise RetrievalError(f"Embedding service unavailable: {exc}") from exc
+            raise RetrievalError("Embedding service unavailable") from exc
         embed_ms = int((time.perf_counter() - t0) * 1000)
 
         sparse = None
@@ -119,7 +119,8 @@ class HybridRetriever:
             try:
                 sparse = self.sparse_encode(req.query)
             except Exception as exc:  # noqa: BLE001
-                reasons.append(f"sparse encoder failed, dense only: {exc}")
+                log.warning("sparse encoder failed: %s", type(exc).__name__)
+                reasons.append("sparse encoder failed, dense only")
         qd, qs = scale_hybrid(dense, sparse, alpha)
 
         flt = build_filter(user, req)

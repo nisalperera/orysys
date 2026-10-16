@@ -1,4 +1,4 @@
-"""Option A authentication: hardcoded users, API key per user. T4 adds the full RBAC tool permissions.
+"""Option A authentication: hardcoded users, API key per user. Tools enforce server-side role permissions.
 
 Keys are compared in constant time. Override the demo keys with API_TOKENS='{"key": "viewer1", ...}' in .env.
 """

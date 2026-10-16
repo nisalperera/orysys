@@ -1,5 +1,7 @@
 # Configuration guide
 
+See [runtime integration notes](docs/runtime_integration.md) for the shared model endpoint template, effective tool timeouts, public diagnostics and final validation status.
+
 See [security and reliability update notes](docs/security_review_changes.md) for shared model endpoint behavior, sanitized activity errors, tracing, and validation limitations.
 
 ## Configuration sources

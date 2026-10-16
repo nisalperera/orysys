@@ -6,7 +6,7 @@ Event types
   input_guard, routing, policy         validation and routing decisions
   retrieval_start / retrieval          retrieval status
   rlm.*                                research agent steps (plan, select, batches, recurse, reduce)
-  tool_call                            tool executions (T4)
+  tool_call                            authorized tool executions
   generation_start / token             response generation (tokens are provisional until `final`)
   validation                           guardrail results
   memory_loaded / memory_updated       memory

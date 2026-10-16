@@ -20,7 +20,7 @@ def test_langsmith_error_does_not_break_retrieval(monkeypatch):
             return wrapper
         return deco
 
-    monkeypatch.setattr("app.graph.nodes.traceable", failing_traceable)
+    monkeypatch.setattr("app.trace_safety.traceable", failing_traceable)
     deps = make_deps()
     res, ev = _run(deps)
     assert "unable to search" not in res["final_answer"] and deps.fakes.search.calls

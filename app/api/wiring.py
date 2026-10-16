@@ -44,14 +44,15 @@ async def build_service() -> ChatService:
         )
 
     # Shared registry for standard retrieval and the tools API.
-    guarded = AuthorizedTools(retriever, raw_engine)
+    guarded = AuthorizedTools.from_settings(retriever, raw_engine, settings)
 
     def make_engine(emit):
         # Per-request wrapper prevents concurrent research requests
         # from sharing their event callbacks.
-        return AuthorizedTools(
+        return AuthorizedTools.from_settings(
             retriever,
             raw_engine,
+            settings,
             emit=emit,
         )
 

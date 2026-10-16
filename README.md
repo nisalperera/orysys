@@ -1,5 +1,7 @@
 # Lanka Meridian Bank AI Assistant
 
+See [runtime integration notes](docs/runtime_integration.md) for final validation fields, public health behavior, timeout configuration and provider setup.
+
 See [security and reliability update notes](docs/security_review_changes.md) for the manual-merge audit, validation commands and outstanding assessment items.
 
 An assessment proof of concept for an enterprise knowledge assistant built with FastAPI, Streamlit, LangGraph and Pinecone.
