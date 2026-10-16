@@ -1,6 +1,7 @@
 """Output guardrails (pure functions, no LLM): hallucinated citations, empty answers, secret leakage,
 missing citations and ungrounded numbers. Every check is explainable, which matters for the demo."""
 import re
+from app.reliability import PLACEHOLDER, citations_in_answer
 from dataclasses import dataclass, field
 
 ID_RX = re.compile(r"\b[A-Z]{2,5}-(?:\d{4}-)?\d{3}(?:#\d+)?\b")
@@ -59,11 +60,13 @@ def validate_answer(answer: str, allowed_doc_ids: set[str], allowed_chunk_ids: s
         return ValidationResult(False, issues)
     if _SECRET_RX.search(text):
         issues.append(_issue("secret_leak", "block", "the answer contains something that looks like a secret"))
+    if PLACEHOLDER.search(text):
+        issues.append(_issue("placeholder_citation", "block", "Replace citation placeholders with actual evidence IDs"))
     bad = invalid_ids(text, allowed_doc_ids, allowed_chunk_ids)
     if bad:
         issues.append(_issue("unknown_citation", "block", f"cited ids not in the retrieved evidence: {bad}"))
     refusal = bool(_REFUSAL_RX.search(text))
-    if has_evidence and not ID_RX.search(text) and not refusal:
+    if has_evidence and not citations_in_answer(text) and not refusal:
         issues.append(_issue("missing_citation", "block", "the answer cites no source"))
     nums = ungrounded_numbers(text, evidence_text)
     if nums:
@@ -85,3 +88,5 @@ def strip_invalid_citations(text: str, allowed_doc_ids: set[str], allowed_chunk_
 
 def build_feedback(issues: list[dict]) -> str:
     return "; ".join(i["message"] for i in issues if i["severity"] == "block")
+
+# acceptance-reliability-v1

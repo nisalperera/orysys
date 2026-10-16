@@ -120,10 +120,13 @@ def parse_plan(code: str, max_batch_size: int = 8) -> Plan:
     if not isinstance(size, int) or not 1 <= size <= max_batch_size:
         raise PlanError(f"batch size must be an integer between 1 and {max_batch_size}")
     questions = []
+    from app.reliability import placeholder_task
     for fn in ("map_analyze", "reduce_all"):
         q = parsed[fn].get("question")
         if not isinstance(q, str) or not 3 <= len(q) <= 300:
             raise PlanError(f"{fn}() needs a question string of 3 to 300 chars")
+        if placeholder_task(q):
+            raise PlanError("Write task-specific questions, not example placeholders")
         questions.append(q)
     try:
         spec = SelectSpec(**parsed["select"])
@@ -162,3 +165,5 @@ def default_plan(question: str, today: date, batch_size: int = 3) -> Plan:
     plan = parse_plan(code)
     plan.source = "fallback"
     return plan
+
+# acceptance-reliability-v1

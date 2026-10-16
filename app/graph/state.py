@@ -9,6 +9,7 @@ class ChatState(TypedDict, total=False):
     request_id: str
     user_id: str
     question: str
+    research_scope: dict
     # memory (persisted by the checkpointer per thread)
     messages: Annotated[list[dict], operator.add]
     memory_summary: str
@@ -30,3 +31,5 @@ class ChatState(TypedDict, total=False):
     citations: list[dict]
     blocked_reason: str
     node_errors: list[str]
+
+# acceptance-reliability-v1

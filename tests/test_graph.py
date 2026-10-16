@@ -53,8 +53,8 @@ def test_hallucinated_citation_triggers_retry_with_feedback():
 def test_retry_exhausted_sanitizes_and_appends_sources():
     deps = make_deps(stream=FakeStream(["Pool issue [INC-9999-999]."]))
     res, _ = go(deps, "viewer1", "pool issue?")
-    assert "INC-9999-999" not in res["final_answer"] and "Sources: [INC-2026-007#3]" in res["final_answer"]
-    assert res["validation"]["action"] == "sanitized" and res["validation"]["ok"] is False and res["attempts"] == 2
+    assert "INC-9999-999" not in res["final_answer"] and "verifiably cited answer" in res["final_answer"]
+    assert res["validation"]["action"] == "replaced" and res["validation"]["ok"] is False and res["attempts"] == 2
 
 
 def test_missing_citation_is_retried():
@@ -259,3 +259,5 @@ def test_event_bus_ordering_close_and_late_emit():
 
     out = run(main())
     assert [e["type"] for e in out] == ["a", "b"] and out[1]["data"] == {"x": 1}
+
+# acceptance-reliability-v1
