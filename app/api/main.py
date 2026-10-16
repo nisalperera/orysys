@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.api.sse import sse_iter
-from app.api.t4 import install
+from app.api.tool_routes import install
 from app.auth.dependencies import authenticate_token
 from app.logging_config import log_event, request_id_var, setup_logging
 
