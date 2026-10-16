@@ -1,5 +1,11 @@
 # Lanka Meridian Bank AI Assistant
 
+Research distinguishes inconclusive evidence from confirmed scoped irrelevance and labels incomplete downtime subtotals explicitly. See [research completeness](docs/research_completeness.md).
+
+See [research completeness](docs/research_completeness.md) for measurement coverage, bounded partial-reduction fallback and final limitation disclosures.
+
+Research totals count unique documents; multiple findings preserve evidence without inflating totals. See [analysis integrity](docs/analysis_integrity.md) and [provider compatibility](docs/vllm_serving.md).
+
 See [current assumptions](docs/ASSUMPTIONS.md) for fail-closed API_TOKENS overrides, sanitized node errors, final UI states and current deployment limitations.
 
 See [runtime integration notes](docs/runtime_integration.md) for final validation fields, public health behavior, timeout configuration and provider setup.

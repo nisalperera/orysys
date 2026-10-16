@@ -28,6 +28,10 @@ from app.retrieval.schemas import Hit, SearchRequest
 from app.rlm.catalog import Catalog
 from app.rlm.errors import is_permanent
 from app.rlm.evidence_policy import supported_findings
+from app.rlm.completeness import (
+    append_completeness_notes, bounded_records, coverage_reasons, safe_completeness_notes,
+    no_findings_outcome, downtime_label,
+)
 from app.reliability import task_for_user, render_extreme
 from app.rlm.guard import reconcile_select
 from app.rlm.jsonutil import extract_json, strip_think
@@ -155,20 +159,21 @@ class RLMEngine:
             if d.doc_id not in analysed and not any(d.doc_id in b.doc_ids and b.error for b in batch_results):
                 run.reasons.append(f"{d.doc_id}: no evidence retrieved")
 
-        meta = {d.doc_id: {"created_date": d.created_date, **extract_facts(self.catalog.body(d.doc_id))} for d in docs}
+        meta = {d.doc_id: {"created_date": d.created_date, "document_type": d.document_type, **extract_facts(self.catalog.body(d.doc_id))} for d in docs}
         analysis = analyze_findings([f.model_dump() for f in findings], meta)
+        run.reasons.extend(coverage_reasons(analysis))
+        if analysis.get("root_cause_groups_overlap"):
+            run.reasons.append("Some documents have multiple root-cause labels; cause-group totals overlap")
         await self._emit("analysis", relevant=len(findings), recurring=analysis["recurring"])
 
-        if not findings and docs and analysed:
-            run.reasons.append("All selected documents classified irrelevant after recheck; completeness not established")
-            await self._emit("relevance_warning", selected=len(docs), analysed=len(analysed))
         if not findings:
-            if batch_results and all(batch.error for batch in batch_results):
-                msg = "The documents could not be analysed because a required service failed. Please try again."
-            elif docs and analysed:
-                msg = "I could not establish relevance for the selected documents after a recheck. This analysis is incomplete; please retry or refine the request."
-            else:
-                msg = "No relevant documents were found for this request."
+            msg, incomplete = no_findings_outcome(
+                [doc.doc_id for doc in docs], analysed,
+                [batch.error for batch in batch_results], bool(run.reasons),
+            )
+            if incomplete:
+                run.reasons.append("Supported relevance could not be established; completeness is not established")
+                await self._emit("relevance_warning", selected=len(docs), analysed=len(analysed))
             if failed:
                 msg += " Some batches failed, so the search may be incomplete."
             return self._result(msg, plan, docs, truncated, failed, analysis, run, findings)
@@ -177,6 +182,7 @@ class RLMEngine:
         return self._result(answer, plan, docs, truncated, failed, analysis, run, findings)
 
     def _result(self, answer, plan, docs, truncated, failed, analysis, run, findings) -> RLMResult:
+        answer = append_completeness_notes(answer, analysis, run.reasons, failed)
         allowed = {d.doc_id for d in docs}
         unverified = sorted(set(_DOC_ID_RX.findall(answer)) - allowed)
         if unverified:
@@ -305,8 +311,9 @@ class RLMEngine:
             await self._emit("reduce_round", round=rounds + 1, groups=len(groups))
             items = await asyncio.gather(*(self._partial(g, run) for g in groups))
             rounds += 1
-        gaps = f"\nBatches that failed: {failed}" if failed else ""
-        user_msg = (f"Question: {question}\nFocus: {plan.reduce_question}\n\nComputed analysis (authoritative):\n"
+        limits = safe_completeness_notes(analysis, run.reasons, failed)
+        gaps = "\n\nCompleteness limitations (must disclose; do not claim complete totals or rankings for incomplete metrics):\n" + "\n".join(limits) if limits else ""
+        user_msg = (f"Question: {question}\nFocus: {plan.reduce_question}\n\nComputed analysis (check metric coverage; sums may be known subtotals):\n"
                     f"{json.dumps(analysis, indent=1)}\n\nFindings:\n" + "\n".join(items) + gaps)
         await self._emit("reduce", findings=len(findings))
         try:
@@ -316,7 +323,7 @@ class RLMEngine:
         except LLMCallError as exc:
             run.reasons.append(f"final aggregation LLM failed ({exc}); deterministic summary used")
             await self._emit("reduce_fallback", error=str(exc))
-            return self._fallback_answer(analysis, failed)
+            return self._fallback_answer(analysis, failed, run.reasons)
 
     async def _partial(self, group: list[str], run: _Run) -> str:
         try:
@@ -324,17 +331,22 @@ class RLMEngine:
                 return await self._call_llm([{"role": "system", "content": PARTIAL_SYSTEM},
                                              {"role": "user", "content": "\n".join(group)}])
         except LLMCallError:
-            return "\n".join(group)[:1500]  # keep raw findings rather than lose them
+            fallback = bounded_records(group, limit=1500)
+            run.reasons.append(
+                f"Partial aggregation failed; retained {fallback['retained']} of {len(group)} complete records"
+            )
+            await self._emit("partial_reduce_fallback", retained=fallback["retained"], omitted=fallback["omitted"])
+            return fallback["text"]
 
     @staticmethod
-    def _fallback_answer(analysis: dict, failed: list[str]) -> str:
+    def _fallback_answer(analysis: dict, failed: list[str], reasons=()) -> str:
         lines = [f"Analysed {analysis['total_documents']} relevant documents (automatic summary, the language model "
                  f"was unavailable)."]
         for c in analysis["by_root_cause"]:
             ids = ", ".join(f"[{i}]" for i in c["doc_ids"])
-            lines.append(f"- {c['root_cause']}: {c['count']} occurrence(s), {c['downtime_minutes']} min downtime, {ids}")
+            lines.append(f"- {c['root_cause']}: {c['count']} occurrence(s), {c['downtime_minutes']} {downtime_label(analysis)}, {ids}")
         if failed:
             lines.append(f"Note: batches {failed} failed, results may be incomplete.")
-        return "\n".join(lines)
+        return append_completeness_notes("\n".join(lines), analysis, reasons, failed)
 
 # acceptance-reliability-v1
