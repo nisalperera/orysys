@@ -76,6 +76,8 @@ API and UI container definitions are provided separately. Container packaging mu
 
 ## Architecture
 
+![Lanka Meridian Bank Agentic Knowledge Assistant architecture](images/architecture.jpeg)
+
 ```mermaid
 flowchart TD
     Browser["Browser :3000"] --> UI["Streamlit UI"]
