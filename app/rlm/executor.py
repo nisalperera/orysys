@@ -157,6 +157,8 @@ class RLMEngine:
 
         meta = {d.doc_id: {"created_date": d.created_date, **extract_facts(self.catalog.body(d.doc_id))} for d in docs}
         analysis = analyze_findings([f.model_dump() for f in findings], meta)
+        if analysis.get("root_cause_groups_overlap"):
+            run.reasons.append("Some documents have multiple root-cause labels; cause-group totals overlap")
         await self._emit("analysis", relevant=len(findings), recurring=analysis["recurring"])
 
         if not findings and docs and analysed:
