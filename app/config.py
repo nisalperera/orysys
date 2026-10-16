@@ -1,5 +1,10 @@
 """Central configuration. All thresholds are env-configurable (see .env.example)."""
 from functools import lru_cache
+
+from dotenv import load_dotenv
+
+# LangSmith and LangChain read os.environ, while pydantic-settings only fills the Settings object.
+load_dotenv()  # shell variables win over .env
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,7 +14,9 @@ class Settings(BaseSettings):
     # LLM && Embeddings
     base_url: str = model_config.get("BASE_URL", "https://openrouter.ai/api/v1")
     api_key: str = model_config.get("API_KEY", "EMPTY")
-    llm_model: str = model_config.get("LLM_MODEL", "Qwen/Qwen3-8B-AWQ")
+
+    # LLM
+    llm_model: str = model_config.get("LLM_MODEL", "qwen/qwen3.8-flash")
     llm_max_tokens: int = model_config.get("LLM_MAX_TOKENS", 2048)
     llm_timeout_sec: float = model_config.get("LLM_TIMEOUT_SEC", 60.0)
     llm_max_retries: int = model_config.get("LLM_MAX_RETRIES", 2)

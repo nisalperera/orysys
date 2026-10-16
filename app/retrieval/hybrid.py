@@ -51,6 +51,23 @@ def scale_hybrid(dense: list[float], sparse: Optional[dict], alpha: float) -> tu
     )
 
 
+DOMINANT_RATIO = 1.6
+DOMINANT_LIMIT = 6
+
+
+def doc_limits(relevant: list, max_per_doc: int) -> dict[str, int]:
+    """Small-to-big: let a clearly dominant document contribute more chunks (needs at least two documents)."""
+    if not max_per_doc:
+        return {}
+    best: dict[str, float] = {}
+    for h in relevant:
+        best[h.doc_id] = max(best.get(h.doc_id, 0.0), h.score)
+    ranked = sorted(best.items(), key=lambda kv: -kv[1])
+    if len(ranked) >= 2 and ranked[0][1] >= DOMINANT_RATIO * ranked[1][1]:
+        return {ranked[0][0]: max(max_per_doc, DOMINANT_LIMIT)}
+    return {}
+
+
 def apply_post_filters(hits: list[Hit], allowed_levels: set[str], min_score: float, max_per_doc: int,
                        top_k: int) -> tuple[list[Hit], int, int, int]:
     """Returns (final_hits, leaked, below_min_score, doc_cap_dropped). Pure and unit tested."""
@@ -61,8 +78,9 @@ def apply_post_filters(hits: list[Hit], allowed_levels: set[str], min_score: flo
     below = len(allowed) - len(relevant)
     per_doc: Counter = Counter()
     capped: list[Hit] = []
+    limits = doc_limits(relevant, max_per_doc)
     for h in relevant:
-        if max_per_doc and per_doc[h.doc_id] >= max_per_doc:
+        if max_per_doc and per_doc[h.doc_id] >= limits.get(h.doc_id, max_per_doc):
             continue
         per_doc[h.doc_id] += 1
         capped.append(h)
